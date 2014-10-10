@@ -566,7 +566,7 @@ def proceed
 
 	benchstarttime = Time.new.to_i
 	linecount = 0
-	logregex = Regexp.new('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z1-9/.]+" 200 ')
+	logregex = Regexp.new('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" 200 ')
 	lognum = $startlog
 
 	begin
