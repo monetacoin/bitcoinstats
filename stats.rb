@@ -428,7 +428,7 @@ def checkEnvironment
 
 	# Abord if important paths or files are missing.
 	abord(LOGSPATH + ' is missing') if !File.directory?(LOGSPATH)
-	abord(LOGSPATH + '/access.log is missing') if !File.file?(LOGSPATH + '/access.log')
+	abord(LOGSPATH + '/access.log is missing') if (!File.file?(LOGSPATH + '/access.log') and !File.file?(LOGSPATH + '/access.log.gz'))
 	abord(GEOIPPATH + ' is missing') if !File.file?(GEOIPPATH)
 	abord(TEMPLATEPATH + '/main.css is missing') if !File.file?(TEMPLATEPATH + '/main.css')
 	abord(TEMPLATEPATH + '/main.js is missing') if !File.file?(TEMPLATEPATH + '/main.js')
