@@ -423,6 +423,15 @@ def abord(msg)
 end
 
 
+# Print benchmark data on screen.
+def printbenchmark(start, count)
+
+	diff = Time.new.to_i - start
+	print count.to_s + ' lines processed in ' + diff.to_s + ' seconds - ' + ( count / [diff, 1].max ).to_s + ' lines per second.'  + "\n"
+
+end
+
+
 # Check if working paths and files are missing, create them if needed.
 def checkEnvironment
 
@@ -565,7 +574,7 @@ end
 # Loop through lines from startlog to log 0.
 def proceed
 
-	benchstarttime = Time.new.to_i
+	benchstart = Time.new.to_i
 	linecount = 0
 	logregex = Regexp.new('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" (200|304) ')
 	lognum = $startlog
@@ -586,7 +595,7 @@ def proceed
 				end
 				file.grep(logregex) do |line|
 					linecount += 1
-					print linecount.to_s + ' lines processed in ' + (Time.new.to_i - benchstarttime).to_s + ' seconds - ' + ( linecount / ([Time.new.to_i - benchstarttime, 1].max) ).to_s + ' lines per second.'  + "\n" if ( linecount % 10000 == 0 )
+					printbenchmark(benchstart, linecount) if ( linecount % 10000 == 0 )
 					updateStats(line)
 				end
 			ensure
