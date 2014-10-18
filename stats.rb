@@ -491,7 +491,7 @@ def checkStartPoint
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	$stoptime = Time.at(lastline['time'])
+	$stoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00")
 	$stoptime.utc
 	$stoptime = $stoptime.to_i
 
