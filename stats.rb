@@ -455,6 +455,7 @@ def checkEnvironment
 	File.delete(DBPATH + '/tmp.db') if File.exist?(DBPATH + '/tmp.db')
 	$tmpdb = SQLite3::Database.new DBPATH + '/tmp.db'
 	$tmpdb.execute 'CREATE TABLE IF NOT EXISTS `visitors`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER)'
+	$tmpdb.execute 'PRAGMA synchronous = 0'
 
 	# Create GEOIP object.
 	$geoip = GeoIP.new(GEOIPPATH)
@@ -573,8 +574,6 @@ def proceed
 		$tmploggz = File.open(DBPATH + '/logs/tmp.log.gz', 'w')
 		$tmplog = Zlib::GzipWriter.wrap($tmploggz)
 
-		$tmpdb.execute 'BEGIN'
-
 		while lognum >= 0 do
 			app = ''
 			app = '.' + lognum.to_s if lognum > 0
@@ -587,11 +586,7 @@ def proceed
 				end
 				file.grep(logregex) do |line|
 					linecount += 1
-					if ( linecount % 10000 == 0 )
-						print linecount.to_s + ' lines processed in ' + (Time.new.to_i - benchstarttime).to_s + ' seconds - ' + ( linecount / ([Time.new.to_i - benchstarttime, 1].max) ).to_s + ' lines per second.'  + "\n"
-						$tmpdb.execute 'COMMIT'
-						$tmpdb.execute 'BEGIN'
-					end
+					print linecount.to_s + ' lines processed in ' + (Time.new.to_i - benchstarttime).to_s + ' seconds - ' + ( linecount / ([Time.new.to_i - benchstarttime, 1].max) ).to_s + ' lines per second.'  + "\n" if ( linecount % 10000 == 0 )
 					updateStats(line)
 				end
 			ensure
@@ -600,8 +595,6 @@ def proceed
 			end
 			lognum -=1
 		end
-
-		$tmpdb.execute 'COMMIT'
 
 	ensure
 		$tmplog.close if !$tmplog.closed?
