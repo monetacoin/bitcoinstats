@@ -18,6 +18,8 @@ LOGSPATH = '/var/log/nginx'
 WEBPATH = '/var/www/stats'
 GEOIPPATH = "/usr/share/GeoIP/GeoIP.dat"
 
+$benchstart = Time.new.to_i
+
 $countryname={
 'AD'=>'Andorra',
 'AE'=>'United Arab Emirates',
@@ -428,7 +430,7 @@ end
 def printbenchmark(start, count)
 
 	diff = Time.new.to_i - start
-	print count.to_s + ' lines processed in ' + diff.to_s + ' seconds - ' + ( count / [diff, 1].max ).to_s + ' lines per second.'  + "\n"
+	print formatnumber(count) + ' lines processed in ' + formatnumber(diff) + ' seconds - ' + formatnumber(count / [diff, 1].max) + ' lines per second.'  + "\n"
 
 end
 
@@ -596,7 +598,7 @@ def proceed
 				end
 				file.grep(logregex) do |line|
 					linecount += 1
-					printbenchmark(benchstart, linecount) if ( linecount % 10000 == 0 )
+					printbenchmark(benchstart, linecount) if linecount % 10000 == 0
 					updateStats(line)
 				end
 			ensure
@@ -761,6 +763,10 @@ def saveStats
 	s.close
 
 	$db.execute 'COMMIT'
+
+	# Print benchmark data on screen.
+	diff = ((Time.new.to_f - $benchstart) / 60).round
+	print 'Logs processed in ' + formatnumber(diff) + ' minutes.'  + "\n"
 
 end
 
