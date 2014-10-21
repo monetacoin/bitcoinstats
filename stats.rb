@@ -18,6 +18,8 @@ LOGSPATH = '/var/log/nginx'
 WEBPATH = '/var/www/stats'
 GEOIPPATH = "/usr/share/GeoIP/GeoIP.dat"
 
+$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}}
+
 $benchstart = Time.new.to_i
 
 $countryname={
@@ -525,9 +527,6 @@ end
 
 # Load saved stats data between start and stop time.
 def loadStats()
-
-	# Create database variables.
-	$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}}
 
 	# Pre-initialize database variables from start to stop date.
 	($ys..$ye).each do |yi|
