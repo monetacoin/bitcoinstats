@@ -437,6 +437,19 @@ def printbenchmark(start, count)
 end
 
 
+# Find start log based on start time.
+def setStartLog()
+
+	$startlog = 0
+	while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz') do
+		firstline = parseLine(getFirstLine($startlog))
+		break if firstline['time'] < $starttime
+		$startlog += 1
+	end
+
+end
+
+
 # Check if working paths and files are missing, create them if needed.
 def checkEnvironment
 
@@ -496,31 +509,12 @@ def checkStartPoint
 		end
 		s.close
 		abord(DBPATH + ' must be restarted using saved server logs.') if $starttime == 0
-		$startlog = 0
-		while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz') do
-			$startlog += 1
-			firstline = parseLine(getFirstLine($startlog))
-			break if firstline['time'] < $starttime
-		end
+		setStartLog()
 	end
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	$stoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00")
-	$stoptime.utc
-	$stoptime = $stoptime.to_i
-
-	# Set start and stop year, month, day.
-	t = Time.at($starttime)
-	t.utc
-	$ys = t.year
-	$ms = t.month
-	$ds = t.day
-	t = Time.at($stoptime)
-	t.utc
-	$ye = t.year
-	$me = t.month
-	$de = t.day
+	$stoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
 
 end
 
@@ -528,19 +522,31 @@ end
 # Load saved stats data between start and stop time.
 def loadStats()
 
+	# Set start and stop year, month, day.
+	t = Time.at($starttime)
+	t.utc
+	ys = t.year
+	ms = t.month
+	ds = t.day
+	t = Time.at($stoptime)
+	t.utc
+	ye = t.year
+	me = t.month
+	de = t.day
+
 	# Pre-initialize database variables from start to stop date.
-	($ys..$ye).each do |yi|
+	(ys..ye).each do |yi|
 		$dbdata.each do |k, v|
 			$dbdata[k][yi] = {} if !$dbdata[k].has_key?(yi)
 		end
-		msi = ($ys == yi) ? $ms : 1
-		mei = ($ye == yi) ? $me : 12
+		msi = (ys == yi) ? ms : 1
+		mei = (ye == yi) ? me : 12
 		(msi..mei).each do |mi|
 			$dbdata.each do |k, v|
 				$dbdata[k][yi][mi] = {} if !$dbdata[k][yi].has_key?(mi)
 			end
-			dsi = ($ys == yi and $ms == mi) ? $ds : 1
-			dei = ($ye == yi and $me == mi) ? $de : calendardays(yi, mi)
+			dsi = (ys == yi and ms == mi) ? ds : 1
+			dei = (ye == yi and me == mi) ? de : calendardays(yi, mi)
 			(dsi..dei).each do |di|  
 				$dbdata['pageviews'][yi][mi][di] = 0 if !$dbdata['pageviews'][yi][mi].has_key?(di)
 			end
@@ -549,21 +555,21 @@ def loadStats()
 
 	# Import data from database to variables.
 	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params($ys, $ms, $ye, $me)
+	s.bind_params(ys, ms, ye, me)
 	r = s.execute
 	r.each do |row|
 		$dbdata['pages'][row[0]][row[1]][row[2]] = row[3]
 	end
 	s.close
 	s = $db.prepare 'SELECT `year`, `month`, `country`, `count` FROM `countries` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params($ys, $ms, $ye, $me)
+	s.bind_params(ys, ms, ye, me)
 	r = s.execute
 	r.each do |row|
 		$dbdata['countries'][row[0]][row[1]][row[2]] = row[3]
 	end
 	s.close
 	s = $db.prepare 'SELECT `year`, `month`, `day`, `count` FROM `pageviews` WHERE `year` >= ? AND `month` >= ? AND `day` >= ? AND `year` <= ? AND `month` <= ? AND `day` <= ?'
-	s.bind_params($ys, $ms, $ds, $ye, $me, $de)
+	s.bind_params(ys, ms, ds, ye, me, de)
 	r = s.execute
 	r.each do |row|
 		$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
