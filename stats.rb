@@ -17,8 +17,10 @@ DBPATH = SCRIPTPATH + '/DB'
 LOGSPATH = '/var/log/nginx'
 WEBPATH = '/var/www/stats'
 GEOIPPATH = "/usr/share/GeoIP/GeoIP.dat"
+BOTLIMIT = 10000
+DOSLIMIT = 100000
 
-$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}}
+$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}, 'ips' => {}, 'blacklist' => {}}
 
 $benchstart = Time.new.to_i
 
@@ -265,6 +267,7 @@ $countryname={
 '--'=>'Unknown',
 }
 
+
 # Return split array from log line.
 def splitLine(data)
 
@@ -317,6 +320,8 @@ def parseLine(data)
 	ar['page'] = page
 	ar['IP'] = data[0]
 	ar['country'] = $geoip.country(data[0]).country_code2
+	ar['referer'] = data[7]
+	ar['useragent'] = data[8]
 
 	return ar
 
@@ -450,6 +455,19 @@ def setStartLog()
 end
 
 
+# Find stop log based on stop time.
+def setStopLog()
+
+	$stoplog = 0
+	while File.exist?(LOGSPATH + '/access.log.' + ($stoplog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($stoplog+1).to_s + '.gz') do
+		firstline = parseLine(getFirstLine($stoplog))
+		break if firstline['time'] < $stoptime
+		$stoplog += 1
+	end
+
+end
+
+
 # Check if working paths and files are missing, create them if needed.
 def checkEnvironment
 
@@ -473,6 +491,7 @@ def checkEnvironment
 		$db.execute 'CREATE TABLE IF NOT EXISTS `pages`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `page` TEXT, `count` INTEGER)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `visitors`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `countries`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `country` TEXT, `count` INTEGER)'
+		$db.execute 'CREATE TABLE IF NOT EXISTS `blacklist`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `ip` TEXT)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `config`(`id` TEXT UNIQUE, `data` TEXT)'
 	else
 		$db = SQLite3::Database.open DBPATH + '/DB.db'
@@ -481,7 +500,7 @@ def checkEnvironment
 	# Create temporary database.
 	File.delete(DBPATH + '/tmp.db') if File.exist?(DBPATH + '/tmp.db')
 	$tmpdb = SQLite3::Database.new DBPATH + '/tmp.db'
-	$tmpdb.execute 'CREATE TABLE IF NOT EXISTS `visitors`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER)'
+	$tmpdb.execute 'CREATE TABLE IF NOT EXISTS `ips`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `day` INTEGER, `ip` TEXT, `count` INTEGER)'
 	$tmpdb.execute 'PRAGMA synchronous = 0'
 
 	# Create GEOIP object.
@@ -514,12 +533,13 @@ def checkStartPoint
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	$stoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	$stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	$stoplog = 0
 
 end
 
 
-# Load saved stats data between start and stop time.
+# Reset and load saved stats data between start and stop time.
 def loadStats()
 
 	# Set start and stop year, month, day.
@@ -534,24 +554,46 @@ def loadStats()
 	me = t.month
 	de = t.day
 
-	# Pre-initialize database variables from start to stop date.
-	(ys..ye).each do |yi|
-		$dbdata.each do |k, v|
-			$dbdata[k][yi] = {} if !$dbdata[k].has_key?(yi)
+	# Exclude ending day
+	de -= 1
+	if de == 0
+		me -= 1
+		if me == 0
+			ye -= 1
+			me = 12
 		end
+		de = calendardays(ye, me)
+	end
+
+	# Pre-initialize database variables from start to stop day.
+	(ys..ye).each do |yi|
 		msi = (ys == yi) ? ms : 1
 		mei = (ye == yi) ? me : 12
+		$dbdata['pages'][yi] = {} if !$dbdata['pages'].has_key?(yi)
+		$dbdata['countries'][yi] = {} if !$dbdata['countries'].has_key?(yi)
+		$dbdata['blacklist'][yi] = {} if !$dbdata['blacklist'].has_key?(yi)
+		$dbdata['pageviews'][yi] = {} if !$dbdata['pageviews'].has_key?(yi)
+		$dbdata['ips'][yi] = {} if !$dbdata['ips'].has_key?(yi)
 		(msi..mei).each do |mi|
-			$dbdata.each do |k, v|
-				$dbdata[k][yi][mi] = {} if !$dbdata[k][yi].has_key?(mi)
-			end
 			dsi = (ys == yi and ms == mi) ? ds : 1
 			dei = (ye == yi and me == mi) ? de : calendardays(yi, mi)
-			(dsi..dei).each do |di|  
-				$dbdata['pageviews'][yi][mi][di] = 0 if !$dbdata['pageviews'][yi][mi].has_key?(di)
+			$dbdata['pages'][yi][mi] = {}
+			$dbdata['countries'][yi][mi] = {}
+			$dbdata['blacklist'][yi][mi] = {}
+			$dbdata['pageviews'][yi][mi] = {} if !$dbdata['pageviews'][yi].has_key?(mi)
+			$dbdata['ips'][yi][mi] = {} if !$dbdata['ips'][yi].has_key?(mi)
+			(dsi..dei).each do |di|
+				$dbdata['pageviews'][yi][mi][di] = 0
+				$dbdata['ips'][yi][mi][di] = {}
 			end
 		end
 	end
+
+	# Clean temporary database if it contains data.
+	s = $tmpdb.prepare 'DELETE FROM `ips` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
+	s.bind_params(ys, ms, ye, me)
+	s.execute
+	s.close
 
 	# Import data from database to variables.
 	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
@@ -575,23 +617,33 @@ def loadStats()
 		$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
 	end
 	s.close
+	s = $db.prepare 'SELECT `year`, `month`, `ip` FROM `blacklist` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
+	s.bind_params(ys, ms, ye, me)
+	r = s.execute
+	r.each do |row|
+		$dbdata['blacklist'][row[0]][row[1]][row[2]] = 1
+	end
+	s.close
 
 end
 
 
-# Loop through lines from startlog to log 0.
-def proceed
+# Import data from start log to stop log.
+def importData(savelog=true)
 
 	benchstart = Time.new.to_i
 	linecount = 0
-	logregex = Regexp.new('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" (200|304) ')
+	logregex = Regexp.new('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3} [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" (200|304) [0-9]+ "[^"]*" "[^"]*"')
 	lognum = $startlog
 
 	begin
-		$tmploggz = File.open(DBPATH + '/logs/tmp.log.gz', 'w')
-		$tmplog = Zlib::GzipWriter.wrap($tmploggz)
-
-		while lognum >= 0 do
+		if savelog == true
+			$tmploggz = File.open(DBPATH + '/logs/tmp.log.gz', 'w')
+			$tmplog = Zlib::GzipWriter.wrap($tmploggz)
+		else
+			$tmplog = File.open(File::NULL, "w")
+		end
+		while lognum >= $stoplog do
 			app = ''
 			app = '.' + lognum.to_s if lognum > 0
 			begin
@@ -603,16 +655,23 @@ def proceed
 				end
 				file.grep(logregex) do |line|
 					linecount += 1
-					printbenchmark(benchstart, linecount) if linecount % 10000 == 0
-					updateStats(line)
+					if linecount % 10000 == 0
+						printbenchmark(benchstart, linecount)
+						saveIPCache()
+					end
+					line = anonymizeLine(line)
+					data = parseLine(line)
+					next if data['time'] >= $stoptime or data['time'] < $starttime
+					$tmplog.puts line
+					updateStats(data)
 				end
+
 			ensure
 				file.close if !file.closed?
 				filegz.close if !(defined?(filegz)).nil? and !filegz.nil? and !filegz.closed?
 			end
 			lognum -=1
 		end
-
 	ensure
 		$tmplog.close if !$tmplog.closed?
 		$tmploggz.close if !$tmploggz.nil? and !$tmploggz.closed?
@@ -621,18 +680,188 @@ def proceed
 end
 
 
-# Update stats count and log.
-def updateStats(line)
+# Check if given array of IPs on given days seem like bots.
+def checkBots(list)
 
-	# Anonymize and get data from line.
-	line = anonymizeLine(line)
-	data = parseLine(line)
+	# Set start and stop times, and unique page, referer and useragent count and hash.
+	list.each_index do |k|
+		list[k]['starttime'] = Time.new(list[k]['y'], list[k]['m'], list[k]['d'], 0, 0, 0, "+00:00").to_i
+		list[k]['stoptime'] = Time.new(list[k]['y'], list[k]['m'], list[k]['d'], 23, 59, 59, "+00:00").to_i
+		list[k]['p'] = []
+		list[k]['pc'] = 0
+		list[k]['r'] = []
+		list[k]['rc'] = 0
+		list[k]['u'] = []
+		list[k]['uc'] = 0
+	end
 
-	# Ignore lines not between start and stop time.
-	return if data['time'] >= $stoptime or data['time'] < $starttime
+	# Set IPs to match in regular expression.
+	ips = {}
+	list.each do |data|
+		ips[data['i']] = 1
+	end
+	ips = '(' + ips.keys.join('|').gsub('.','\\.') + ')'
 
-	# save log line temporarily.
-	$tmplog.puts line
+	# Assign variables.
+	benchstart = Time.new.to_i
+	linecount = 0
+	logregex = Regexp.new('^' + ips + ' [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" (200|304) [0-9]+ "[^"]+" "[^"]+"')
+
+	# Search lines with given IP.
+	print "\n" + 'Checking suspect page requests' + "\n"
+	begin
+		filegz = File.new(DBPATH + '/logs/tmp.log.gz','r')
+		file = Zlib::GzipReader.new(filegz)
+		file.grep(logregex) do |line|
+
+			# Assign variables
+			linecount += 1
+			printbenchmark(benchstart, linecount) if ( linecount % 10000 == 0 )
+			line = parseLine(line)
+
+			# Update page, referer, useragent counts.
+			list.each_index do |k|
+				next if list[k]['i'] != line['IP']
+				next if line['time'] > list[k]['stoptime'] or line['time'] < list[k]['starttime']
+				if list[k]['pc'] < 10 and !list[k]['p'].include?(line['page'])
+					list[k]['pc'] += 1
+					list[k]['p'].push(line['page'])
+				end
+				if list[k]['rc'] < 10 and !list[k]['r'].include?(line['referer'])
+					list[k]['rc'] += 1
+					list[k]['r'].push(line['referer'])
+				end
+				if list[k]['uc'] < 10 and !list[k]['u'].include?(line['useragent'])
+					list[k]['uc'] += 1
+					list[k]['u'].push(line['useragent'])
+				end
+			end
+
+			# Delete entries from the list when enough unique pages, referers and useragents are found.
+			list.delete_if {|data| data['pc'] >= 10 and data['rc'] >= 10 and data['uc'] >= 10}
+
+		end
+	ensure
+		file.close if !file.closed?
+		filegz.close if !(defined?(filegz)).nil? and !filegz.nil? and !filegz.closed?
+	end
+
+	# Return filtered list of bots.
+	return list
+
+end
+
+
+# Filter requests from IPs with an unusual number of requests by day.
+def filterBots
+
+	# Set hash for months that will need to be re-processed with the black list.
+	replay = {}
+	suspects = []
+	blacklist = []
+
+	# Loop through IPs with page request count above defined limits.
+	s = $tmpdb.prepare 'SELECT `year`, `month`, `day`, `ip`, `count` FROM `ips` WHERE `count` >= ' + BOTLIMIT.to_s + ' OR `count` >= ' + DOSLIMIT.to_s
+	r = s.execute
+	r.each do |row|
+
+		# Set variables.
+		y = row[0]
+		m = row[1]
+		d = row[2]
+		i = row[3]
+		n = row[4]
+
+		# Do nothing if the IP is already blacklisted.
+		blacklisted = false
+		ss = $db.prepare 'SELECT COUNT(`id`) FROM `blacklist` WHERE `id` = ?'
+		ss.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + i)
+		rr = ss.execute
+		rr.each do |row|
+			blacklisted = true if row[0] > 0
+		end
+		ss.close
+		next if blacklisted == true
+
+		# Add IP to appropriate list depending on the traffic being considered as a DoS or potential bot.
+		if n >= DOSLIMIT
+			blacklist.push({'y' => y, 'm' => m, 'i' => i})
+		else
+			suspects.push({'y' => y, 'm' => m, 'd' => d, 'i' => i})
+		end
+
+	end
+	s.close
+
+	# Check if suspected IPs are bots and add them to the blacklist if so.
+	if suspects.length > 0
+		checkBots(suspects).each do |data|
+			blacklist.push({'y' => data['y'], 'm' => data['m'], 'i' => data['i']})
+		end
+	end
+
+	# Blacklist IPs and set months to be re-processed.
+	blacklist.each do |data|
+
+		# Set variables.
+		y = data['y']
+		m = data['m']
+		i = data['i']
+
+		# Blacklist the IP for the given month.
+		s = $db.prepare 'INSERT OR IGNORE INTO `blacklist` (`id`, `year`, `month`, `ip`) VALUES (?, ?, ?, ?)'
+		s.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + i, y, m, i)
+		s.execute
+		s.close
+
+		# Add months to be re-processed with the updated blacklist.
+		replay[y] = {} if !replay.has_key?(y)
+		replay[y][m] = 1
+
+	end
+
+	# Reset and reimport data for each months with newly blacklisted IPs.
+	replay.each do |y, val|
+	replay[y].each do |m, val|
+
+		# Set end date.
+		ye = y
+		me = m + 1
+		if me > 12
+			ye += 1
+			me = 1
+		end
+
+		# Set start and stop time.
+		$starttime = Time.new(y, m, 1, 0, 0, 0, "+00:00").to_i
+		$stoptime = Time.new(ye, me, 1, 0, 0, 0, "+00:00").to_i
+
+		# Avoid importing data after next start time.
+		$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+
+		# Set start and stop log.
+		setStartLog()
+		setStopLog()
+
+		# Reset and reload stats for the given period.
+		loadStats()
+
+		print "\n" + 'Reprocessing data for ' + sprintf('%04d', y) + '-' + sprintf('%02d', m) + "\n"
+
+		# Re-import data from the logs without updating tmp.log.gz.
+		importData(false)
+
+	end
+	end
+
+end
+
+
+# Update stats count.
+def updateStats(data)
+
+	# Ignore lines with blacklisted IP.
+	return if $dbdata['blacklist'][data['year']][data['month']].has_key?(data['IP'])
 
 	# Set variables.
 	y = data['year']
@@ -642,11 +871,12 @@ def updateStats(line)
 	c = data['country']
 	i = data['IP']
 
-	# Update pageviews by unique visitors count.
-	s = $tmpdb.prepare 'INSERT OR IGNORE INTO `visitors` (`id`, `year`, `month`) VALUES (?, ?, ?)'
-	s.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + i, y, m)
-	s.execute
-	s.close
+	# Update pageviews by IP, later used for bots detection and unique visitors count.
+	if !$dbdata['ips'][y][m][d].has_key?(i)
+		$dbdata['ips'][y][m][d][i] = 1
+	else
+		$dbdata['ips'][y][m][d][i] += 1
+	end
 
 	# Update pageviews count.
 	$dbdata['pageviews'][y][m][d] += 1
@@ -663,6 +893,31 @@ def updateStats(line)
 		$dbdata['countries'][y][m][c] = 1
 	else
 		$dbdata['countries'][y][m][c] += 1
+	end
+
+end
+
+
+# Update temporary IP database with data in memory.
+def saveIPCache
+
+	$dbdata['ips'].each do |y, val|
+		$dbdata['ips'][y].each do |m, val|
+			$dbdata['ips'][y][m].each do |d, val|
+				$dbdata['ips'][y][m][d].each do |i, count|
+					id = sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + sprintf('%02d', d) + '-' + i
+					s = $tmpdb.prepare 'INSERT OR IGNORE INTO `ips` (`id`, `year`, `month`, `day`, `ip`, `count`) VALUES (?, ?, ?, ?, ?, 0)'
+					s.bind_params(id, y, m, d, i)
+					s.execute
+					s.close
+					s = $tmpdb.prepare 'UPDATE `ips` SET `count` = `count` + ? WHERE `id` = ?'
+					s.bind_params(count, id)
+					s.execute
+					s.close
+				end
+				$dbdata['ips'][y][m][d] = {}
+			end
+		end
 	end
 
 end
@@ -749,11 +1004,12 @@ def saveStats
 	end
 
 	# Update visitors database with data in temporary database and delete temporary database.
-	s = $tmpdb.prepare 'SELECT `id`, `year`, `month` FROM `visitors`'
+	saveIPCache()
+	s = $tmpdb.prepare 'SELECT `ip`, `year`, `month` FROM `ips`'
 	r = s.execute
 	r.each do |row|
 		ss = $db.prepare 'INSERT OR IGNORE INTO `visitors` (`id`, `year`, `month`) VALUES (?, ?, ?)'
-		ss.bind_params(row[0], row[1], row[2])
+		ss.bind_params(sprintf('%04d', row[1]) + '-' + sprintf('%02d', row[2]) + '-' + row[0], row[1], row[2])
 		ss.execute
 		ss.close
 	end
@@ -761,9 +1017,9 @@ def saveStats
 	$tmpdb.close
 	File.delete(DBPATH + '/tmp.db')
 
-	# Save stoptime to database to resume the script later.
+	# Save resumetime to database to resume the script later.
 	s = $db.prepare 'INSERT OR REPLACE INTO `config` (`id`, `data`) VALUES (\'resume\', ?)'
-	s.bind_params($stoptime.to_s)
+	s.bind_params($resumetime.to_s)
 	s.execute
 	s.close
 
@@ -1016,7 +1272,7 @@ def generatePage(y=nil, m=nil)
 		f.write('}' + "\n")
 		f.write('drawgraph();' + "\n")
 		f.write('</script>' + "\n\n")
-	
+
 		f.write('</body>' + "\n")
 		f.write('</html>')
 
@@ -1030,7 +1286,9 @@ checkStartPoint()
 
 loadStats()
 
-proceed()
+importData()
+
+filterBots()
 
 saveStats()
 
