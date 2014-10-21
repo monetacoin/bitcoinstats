@@ -295,7 +295,8 @@ def parseLine(data)
 	page = page[0..page.index('?')-1] if !page.index('?').nil?
 	page = page[0..page.index('#')-1] if !page.index('#').nil?
 	page = page.gsub(/\\x[a-f0-9]{2}/i){|m| m[2..-1].to_i(16).chr} if !page.index('\\x').nil?
-	page = CGI.unescape(page.gsub('//','/'))
+	page = page.gsub(/\/+/,'/') if !page.index('//').nil?
+	page = CGI.unescape(page)
 
 	datedata = data[3][0..data[3].index(':')-1].split('/')
 	timedata = data[3][data[3].index(':')+1..data[3].index(' ')-1].split(':')
