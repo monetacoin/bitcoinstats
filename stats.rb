@@ -358,16 +358,19 @@ end
 
 
 # Get first line from log number.
-def getFirstLine(n)
+def getFirstLine(n, replay=false)
+
+	path = LOGSPATH
+	path = DBPATH + '/logs' if replay == true
 
 	firstline = ''
 	ex = ''
 	ex = '.' + n.to_s if n > 0
 	begin
-		if File.exist?(LOGSPATH + '/access.log' + ex)
-			log = File.new(LOGSPATH + '/access.log' + ex,'r')
-		elsif File.exist?(LOGSPATH + '/access.log' + ex + '.gz')
-			loggz = File.new(LOGSPATH + '/access.log' + ex + '.gz','r')
+		if File.exist?(path + '/access.log' + ex)
+			log = File.new(path + '/access.log' + ex,'r')
+		elsif File.exist?(path + '/access.log' + ex + '.gz')
+			loggz = File.new(path + '/access.log' + ex + '.gz','r')
 			log = Zlib::GzipReader.new(loggz)
 		end
 		log.each do |line|
@@ -385,15 +388,18 @@ end
 
 
 # Get last line from log number.
-def getLastLine(n)
+def getLastLine(n, replay=false)
+
+	path = LOGSPATH
+	path = DBPATH + '/logs' if replay == true
 
 	lastline = ''
 	ex = ''
 	ex = '.' + n.to_s if n > 0
 	# Use seek if file is not compressed.
-	if File.exist?(LOGSPATH+'/access.log'+ex)
+	if File.exist?(path + '/access.log' + ex)
 		begin
-			log = File.new(LOGSPATH+'/access.log'+ex,'r')
+			log = File.new(path + '/access.log' + ex,'r')
 			buffer = 0
 			while lastline.scan("\n").length < 2 do
 				buffer -= 1024
@@ -406,9 +412,9 @@ def getLastLine(n)
 			log.close if !log.closed?
 		end
 	# Loop if file is compressed.
-	elsif File.exist?(LOGSPATH+'/access.log'+ex+'.gz')
+	elsif File.exist?(path + '/access.log' + ex + '.gz')
 		begin
-			loggz = File.new(LOGSPATH+'/access.log'+ex+'.gz','r')
+			loggz = File.new(path + '/access.log' + ex + '.gz','r')
 			log = Zlib::GzipReader.new(loggz)
 			log.each do |line|
 				lastline = line
@@ -443,11 +449,14 @@ end
 
 
 # Find start log based on start time.
-def setStartLog()
+def setStartLog(replay=false)
+
+	path = LOGSPATH
+	path = DBPATH + '/logs' if replay == true
 
 	$startlog = 0
-	while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz') do
-		firstline = parseLine(getFirstLine($startlog))
+	while File.exist?(path + '/access.log.' + ($startlog+1).to_s) or File.exist?(path + '/access.log.' + ($startlog+1).to_s + '.gz') do
+		firstline = parseLine(getFirstLine($startlog, replay))
 		break if firstline['time'] < $starttime
 		$startlog += 1
 	end
@@ -456,11 +465,14 @@ end
 
 
 # Find stop log based on stop time.
-def setStopLog()
+def setStopLog(replay=false)
+
+	path = LOGSPATH
+	path = DBPATH + '/logs' if replay == true
 
 	$stoplog = 0
-	while File.exist?(LOGSPATH + '/access.log.' + ($stoplog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($stoplog+1).to_s + '.gz') do
-		firstline = parseLine(getFirstLine($stoplog))
+	while File.exist?(path + '/access.log.' + ($stoplog+1).to_s) or File.exist?(path + '/access.log.' + ($stoplog+1).to_s + '.gz') do
+		firstline = parseLine(getFirstLine($stoplog, replay))
 		break if firstline['time'] < $stoptime
 		$stoplog += 1
 	end
@@ -540,7 +552,7 @@ end
 
 
 # Reset and load saved stats data between start and stop time.
-def loadStats()
+def loadStats(replay=false)
 
 	# Set start and stop year, month, day.
 	t = Time.at($starttime)
@@ -595,7 +607,8 @@ def loadStats()
 	s.execute
 	s.close
 
-	# Import data from database to variables.
+	# Import data from database to variables only if not in replay mode.
+	return if replay == true
 	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
 	s.bind_params(ys, ms, ye, me)
 	r = s.execute
@@ -629,7 +642,7 @@ end
 
 
 # Import data from start log to stop log.
-def importData(savelog=true)
+def importData(replay=false)
 
 	benchstart = Time.new.to_i
 	linecount = 0
@@ -637,20 +650,22 @@ def importData(savelog=true)
 	lognum = $startlog
 
 	begin
-		if savelog == true
-			$tmploggz = File.open(DBPATH + '/logs/tmp.log.gz', 'w')
-			$tmplog = Zlib::GzipWriter.wrap($tmploggz)
+		if replay == false
+			tmploggz = File.open(DBPATH + '/logs/tmp.log.gz', 'w')
+			tmplog = Zlib::GzipWriter.wrap(tmploggz)
+			path = LOGSPATH
 		else
-			$tmplog = File.open(File::NULL, "w")
+			tmplog = File.open(File::NULL, "w")
+			path = DBPATH + '/logs'
 		end
 		while lognum >= $stoplog do
 			app = ''
 			app = '.' + lognum.to_s if lognum > 0
 			begin
-				if File.exist?(LOGSPATH + '/access.log' + app)
-					file = File.new(LOGSPATH + '/access.log' + app,'r')
-				elsif File.exist?(LOGSPATH + '/access.log' + app + '.gz')
-					filegz = File.new(LOGSPATH + '/access.log' + app + '.gz','r')
+				if File.exist?(path + '/access.log' + app)
+					file = File.new(path + '/access.log' + app,'r')
+				elsif File.exist?(path + '/access.log' + app + '.gz')
+					filegz = File.new(path + '/access.log' + app + '.gz','r')
 					file = Zlib::GzipReader.new(filegz)
 				end
 				file.grep(logregex) do |line|
@@ -662,7 +677,7 @@ def importData(savelog=true)
 					line = anonymizeLine(line)
 					data = parseLine(line)
 					next if data['time'] >= $stoptime or data['time'] < $starttime
-					$tmplog.puts line
+					tmplog.puts line
 					updateStats(data)
 				end
 
@@ -673,8 +688,8 @@ def importData(savelog=true)
 			lognum -=1
 		end
 	ensure
-		$tmplog.close if !$tmplog.closed?
-		$tmploggz.close if !$tmploggz.nil? and !$tmploggz.closed?
+		tmplog.close if !tmplog.closed?
+		tmploggz.close if !tmploggz.nil? and !tmploggz.closed?
 	end
 
 end
@@ -702,48 +717,72 @@ def checkBots(list)
 	end
 	ips = '(' + ips.keys.join('|').gsub('.','\\.') + ')'
 
+	# Set start and stop time.
+	$starttime = list.min_by {|x| x['startime'] }['starttime']
+	$stoptime = list.max_by {|x| x['stoptime'] }['stoptime']
+
+	# Avoid importing data after next start time.
+	$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+
+	# Set start and stop log.
+	setStartLog(true)
+	setStopLog(true)
+
 	# Assign variables.
 	benchstart = Time.new.to_i
 	linecount = 0
 	logregex = Regexp.new('^' + ips + ' [^ ]+ [^ ]+ \[[a-zA-Z0-9:+\-/ ]+\] "GET ' + ACCEPTPAGE + ' [A-Za-z0-9/.]+" (200|304) [0-9]+ "[^"]+" "[^"]+"')
+	lognum = $startlog
+	path = DBPATH + '/logs'
 
 	# Search lines with given IP.
 	print "\n" + 'Checking suspect page requests' + "\n"
-	begin
-		filegz = File.new(DBPATH + '/logs/tmp.log.gz','r')
-		file = Zlib::GzipReader.new(filegz)
-		file.grep(logregex) do |line|
+	while lognum >= $stoplog do
+		app = ''
+		app = '.' + lognum.to_s if lognum > 0
+		begin
 
-			# Assign variables
-			linecount += 1
-			printbenchmark(benchstart, linecount) if ( linecount % 10000 == 0 )
-			line = parseLine(line)
+			if File.exist?(path + '/access.log' + app)
+				file = File.new(path + '/access.log' + app,'r')
+			elsif File.exist?(path + '/access.log' + app + '.gz')
+				filegz = File.new(path + '/access.log' + app + '.gz','r')
+				file = Zlib::GzipReader.new(filegz)
+			end
+			file.grep(logregex) do |line|
 
-			# Update page, referer, useragent counts.
-			list.each_index do |k|
-				next if list[k]['i'] != line['IP']
-				next if line['time'] > list[k]['stoptime'] or line['time'] < list[k]['starttime']
-				if list[k]['pc'] < 10 and !list[k]['p'].include?(line['page'])
-					list[k]['pc'] += 1
-					list[k]['p'].push(line['page'])
+				# Assign variables
+				linecount += 1
+				printbenchmark(benchstart, linecount) if ( linecount % 10000 == 0 )
+				line = parseLine(line)
+
+				# Update page, referer, useragent counts.
+				list.each_index do |k|
+					next if list[k]['i'] != line['IP']
+					next if line['time'] > list[k]['stoptime'] or line['time'] < list[k]['starttime']
+					if list[k]['pc'] < 10 and !list[k]['p'].include?(line['page'])
+						list[k]['pc'] += 1
+						list[k]['p'].push(line['page'])
+					end
+					if list[k]['rc'] < 10 and !list[k]['r'].include?(line['referer'])
+						list[k]['rc'] += 1
+						list[k]['r'].push(line['referer'])
+					end
+					if list[k]['uc'] < 10 and !list[k]['u'].include?(line['useragent'])
+						list[k]['uc'] += 1
+						list[k]['u'].push(line['useragent'])
+					end
 				end
-				if list[k]['rc'] < 10 and !list[k]['r'].include?(line['referer'])
-					list[k]['rc'] += 1
-					list[k]['r'].push(line['referer'])
-				end
-				if list[k]['uc'] < 10 and !list[k]['u'].include?(line['useragent'])
-					list[k]['uc'] += 1
-					list[k]['u'].push(line['useragent'])
-				end
+
+				# Delete entries from the list when enough unique pages, referers and useragents are found.
+				list.delete_if {|data| data['pc'] >= 10 and data['rc'] >= 10 and data['uc'] >= 10}
+
 			end
 
-			# Delete entries from the list when enough unique pages, referers and useragents are found.
-			list.delete_if {|data| data['pc'] >= 10 and data['rc'] >= 10 and data['uc'] >= 10}
-
+		ensure
+			file.close if !file.closed?
+			filegz.close if !(defined?(filegz)).nil? and !filegz.nil? and !filegz.closed?
 		end
-	ensure
-		file.close if !file.closed?
-		filegz.close if !(defined?(filegz)).nil? and !filegz.nil? and !filegz.closed?
+		lognum -=1
 	end
 
 	# Return filtered list of bots.
@@ -840,19 +879,31 @@ def filterBots
 		$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
 
 		# Set start and stop log.
-		setStartLog()
-		setStopLog()
+		setStartLog(true)
+		setStopLog(true)
 
 		# Reset and reload stats for the given period.
-		loadStats()
+		loadStats(true)
 
 		print "\n" + 'Reprocessing data for ' + sprintf('%04d', y) + '-' + sprintf('%02d', m) + "\n"
 
 		# Re-import data from the logs without updating tmp.log.gz.
-		importData(false)
+		importData(true)
 
 	end
 	end
+
+	# Re-save stats
+	saveStats()
+
+end
+
+
+# Delete remaining temporary files.
+def cleanEnvironment
+
+	$tmpdb.close
+	File.delete(DBPATH + '/tmp.db') #FIXME
 
 end
 
@@ -943,31 +994,33 @@ end
 def saveStats
 
 	# Save imported logs and delete temporary log file.
-	File.open(DBPATH + '/logs/tmp.log.gz', 'r') do |srcgz|
-	Zlib::GzipReader.wrap(srcgz) do |src|
+	if File.exist?(DBPATH + '/logs/tmp.log.gz')
+		File.open(DBPATH + '/logs/tmp.log.gz', 'r') do |srcgz|
+		Zlib::GzipReader.wrap(srcgz) do |src|
 
-		begin
-			dstgz = File.open(DBPATH + '/logs/access.log.gz', 'a')
-			dst = Zlib::GzipWriter.wrap(dstgz)
-			src.each do |line|
-				dst.puts line
-				# Rotate logs when file size gets bigger than 100Mb.
-				if File.size(DBPATH + '/logs/access.log.gz') >= 100000000
-					dst.close if !dst.closed?
-					dstgz.close if !dstgz.nil? and !dstgz.closed?
-					rotateLogs()
-					dstgz = File.open(DBPATH + '/logs/access.log.gz', 'a')
-					dst = Zlib::GzipWriter.wrap(dstgz)
+			begin
+				dstgz = File.open(DBPATH + '/logs/access.log.gz', 'a')
+				dst = Zlib::GzipWriter.wrap(dstgz)
+				src.each do |line|
+					dst.puts line
+					# Rotate logs when file size gets bigger than 100Mb.
+					if File.size(DBPATH + '/logs/access.log.gz') >= 100000000
+						dst.close if !dst.closed?
+						dstgz.close if !dstgz.nil? and !dstgz.closed?
+						rotateLogs()
+						dstgz = File.open(DBPATH + '/logs/access.log.gz', 'a')
+						dst = Zlib::GzipWriter.wrap(dstgz)
+					end
 				end
+			ensure
+				dst.close if !dst.closed?
+				dstgz.close if !dstgz.nil? and !dstgz.closed?
 			end
-		ensure
-			dst.close if !dst.closed?
-			dstgz.close if !dstgz.nil? and !dstgz.closed?
-		end
 
+		end
+		end
+		File.delete(DBPATH + '/logs/tmp.log.gz')
 	end
-	end
-	File.delete(DBPATH + '/logs/tmp.log.gz')
 
 	$db.execute 'BEGIN'
 
@@ -1014,8 +1067,6 @@ def saveStats
 		ss.close
 	end
 	s.close
-	$tmpdb.close
-	File.delete(DBPATH + '/tmp.db')
 
 	# Save resumetime to database to resume the script later.
 	s = $db.prepare 'INSERT OR REPLACE INTO `config` (`id`, `data`) VALUES (\'resume\', ?)'
@@ -1024,10 +1075,6 @@ def saveStats
 	s.close
 
 	$db.execute 'COMMIT'
-
-	# Print benchmark data on screen.
-	diff = ((Time.new.to_f - $benchstart) / 60).round
-	print 'Logs processed in ' + formatnumber(diff) + ' minutes.'  + "\n"
 
 end
 
@@ -1070,6 +1117,10 @@ def generatePages
 			generatePage(yi, mi)
 		end
 	end
+
+	# Print benchmark data on screen.
+	diff = ((Time.new.to_f - $benchstart) / 60).round
+	print 'Logs processed in ' + formatnumber(diff) + ' minutes.'  + "\n"
 
 end
 
@@ -1288,8 +1339,10 @@ loadStats()
 
 importData()
 
+saveStats()
+
 filterBots()
 
-saveStats()
+cleanEnvironment()
 
 generatePages()
