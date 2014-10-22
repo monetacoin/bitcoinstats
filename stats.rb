@@ -676,7 +676,7 @@ def importData(replay=false)
 						printbenchmark(benchstart, linecount)
 						saveIPCache()
 					end
-					line = anonymizeLine(line)
+					line = anonymizeLine(line) if replay == false
 					data = parseLine(line)
 					next if data['time'] >= $stoptime or data['time'] < $starttime
 					tmplog.puts line
