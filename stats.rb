@@ -607,7 +607,16 @@ def loadStats(replay=false)
 	s.execute
 	s.close
 
-	# Import data from database to variables only if not in replay mode.
+	# Import blacklist data from database
+	s = $db.prepare 'SELECT `year`, `month`, `ip` FROM `blacklist` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
+	s.bind_params(ys, ms, ye, me)
+	r = s.execute
+	r.each do |row|
+		$dbdata['blacklist'][row[0]][row[1]][row[2]] = 1
+	end
+	s.close
+
+	# Import stats data from database to variables only if not in replay mode.
 	return if replay == true
 	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
 	s.bind_params(ys, ms, ye, me)
@@ -628,13 +637,6 @@ def loadStats(replay=false)
 	r = s.execute
 	r.each do |row|
 		$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
-	end
-	s.close
-	s = $db.prepare 'SELECT `year`, `month`, `ip` FROM `blacklist` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params(ys, ms, ye, me)
-	r = s.execute
-	r.each do |row|
-		$dbdata['blacklist'][row[0]][row[1]][row[2]] = 1
 	end
 	s.close
 
