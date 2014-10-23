@@ -623,9 +623,9 @@ def loadStats(replay=false)
 		end
 	end
 
-	# Import blacklist data from database
-	s = $db.prepare 'SELECT `year`, `month`, `day`, `ip` FROM `blacklist` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
-	s.bind_params(intms, intme)
+	# Import blacklist data from database.
+	s = $db.prepare 'SELECT `year`, `month`, `day`, `ip` FROM `blacklist` WHERE `year` * 10000 + `month` * 100 + `day` BETWEEN ? AND ?'
+	s.bind_params($intds, $intde)
 	r = s.execute
 	r.each do |row|
 		$dbdata['blacklist'][row[0]][row[1]][row[2]][row[3]] = 1
