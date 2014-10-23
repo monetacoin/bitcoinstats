@@ -565,6 +565,10 @@ def loadStats(replay=false)
 	ye = t.year
 	me = t.month
 	de = t.day
+	intms = (sprintf('%04d', ys) + sprintf('%02d', ms) + '00').to_i
+	intme = (sprintf('%04d', ye) + sprintf('%02d', me) + '00').to_i
+	intds = (sprintf('%04d', ys) + sprintf('%02d', ms) + sprintf('%02d', ds)).to_i
+	intde = (sprintf('%04d', ye) + sprintf('%02d', me) + sprintf('%02d', de)).to_i
 
 	# Exclude ending day
 	de -= 1
@@ -602,38 +606,38 @@ def loadStats(replay=false)
 	end
 
 	# Clean temporary database if it contains data.
-	s = $tmpdb.prepare 'DELETE FROM `ips` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params(ys, ms, ye, me)
+	s = $tmpdb.prepare 'DELETE FROM `ips` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+	s.bind_params(intms, intme)
 	s.execute
 	s.close
 
 	# Import blacklist data from database
-	s = $db.prepare 'SELECT `year`, `month`, `ip` FROM `blacklist` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params(ys, ms, ye, me)
+	s = $db.prepare 'SELECT `year`, `month`, `day`, `ip` FROM `blacklist` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+	s.bind_params(intms, intme)
 	r = s.execute
 	r.each do |row|
-		$dbdata['blacklist'][row[0]][row[1]][row[2]] = 1
+		$dbdata['blacklist'][row[0]][row[1]][row[2]][row[3]] = 1
 	end
 	s.close
 
 	# Import stats data from database to variables only if not in replay mode.
 	return if replay == true
-	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params(ys, ms, ye, me)
+	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+	s.bind_params(intms, intme)
 	r = s.execute
 	r.each do |row|
 		$dbdata['pages'][row[0]][row[1]][row[2]] = row[3]
 	end
 	s.close
-	s = $db.prepare 'SELECT `year`, `month`, `country`, `count` FROM `countries` WHERE `year` >= ? AND `month` >= ? AND `year` <= ? AND `month` <= ?'
-	s.bind_params(ys, ms, ye, me)
+	s = $db.prepare 'SELECT `year`, `month`, `country`, `count` FROM `countries` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+	s.bind_params(intms, intme)
 	r = s.execute
 	r.each do |row|
 		$dbdata['countries'][row[0]][row[1]][row[2]] = row[3]
 	end
 	s.close
-	s = $db.prepare 'SELECT `year`, `month`, `day`, `count` FROM `pageviews` WHERE `year` >= ? AND `month` >= ? AND `day` >= ? AND `year` <= ? AND `month` <= ? AND `day` <= ?'
-	s.bind_params(ys, ms, ds, ye, me, de)
+	s = $db.prepare 'SELECT `year`, `month`, `day`, `count` FROM `pageviews` WHERE `year` * 10000 + `month` * 100 + `day` BETWEEN ? AND ?'
+	s.bind_params(intds, intde)
 	r = s.execute
 	r.each do |row|
 		$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
@@ -1284,8 +1288,10 @@ def generatePage(y=nil, m=nil)
 						ar[sprintf('%04d', yi) + '-' + sprintf('%02d', mi)] = '0'
 					end
 				end
-				s = $db.prepare 'SELECT `year`, `month`, SUM(`count`) FROM `pageviews` WHERE `year` >= ? AND `year` <= ? AND `month` >= ? AND `month` <= ? GROUP BY `year`, `month`'
-				s.bind_params(ys, ye, ms, me)
+				intms = (sprintf('%04d', ys) + sprintf('%02d', ms) + '00').to_i
+				intme = (sprintf('%04d', ye) + sprintf('%02d', me) + '00').to_i
+				s = $db.prepare 'SELECT `year`, `month`, SUM(`count`) FROM `pageviews` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ? GROUP BY `year`, `month`'
+				s.bind_params(intms, intme)
 				r = s.execute
 				r.each do |row|
 					ar[sprintf('%04d', row[0]) + '-' + sprintf('%02d', row[1])] = row[2].to_s
