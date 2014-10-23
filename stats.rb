@@ -448,6 +448,48 @@ def printbenchmark(start, count)
 end
 
 
+# Set global variables for start and stop time, year, month, day.
+def setStartStopTime(start, stop)
+
+	# Set start and stop time.
+	$starttime = start
+	$stoptime = stop
+
+	# Avoid importing data after next start time.
+	$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+
+	# Set start and stop year, month, day.
+	t = Time.at(start)
+	t.utc
+	$ys = t.year
+	$ms = t.month
+	$ds = t.day
+	t = Time.at(stop)
+	t.utc
+	$ye = t.year
+	$me = t.month
+	$de = t.day
+
+	# Exclude ending day.
+	$de -= 1
+	if $de == 0
+		$me -= 1
+		if $me == 0
+			$ye -= 1
+			$me = 12
+		end
+		$de = calendardays($ye, $me)
+	end
+
+	# Set intervals for database.
+	$intms = (sprintf('%04d', $ys) + sprintf('%02d', $ms) + '00').to_i
+	$intme = (sprintf('%04d', $ye) + sprintf('%02d', $me) + '00').to_i
+	$intds = (sprintf('%04d', $ys) + sprintf('%02d', $ms) + sprintf('%02d', $ds)).to_i
+	$intde = (sprintf('%04d', $ye) + sprintf('%02d', $me) + sprintf('%02d', $de)).to_i
+
+end
+
+
 # Find start log based on start time.
 def setStartLog(replay=false)
 
@@ -529,14 +571,14 @@ def checkStartPoint
 		$startlog = 0
 		$startlog += 1 while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz')
 		firstline = parseLine(getFirstLine($startlog))
-		$starttime = firstline['time']
+		starttime = firstline['time']
 	# If DB exists, set start time and log from last stop time on DB.
 	else
-		$starttime = 0
+		starttime = 0
 		s = $db.prepare 'SELECT `data` FROM `config` WHERE `id` = \'resume\''
 		r = s.execute
 		r.each do |row|
-			$starttime = row[0].to_i
+			starttime = row[0].to_i
 		end
 		s.close
 		abord(DBPATH + ' must be restarted using saved server logs.') if $starttime == 0
@@ -545,8 +587,10 @@ def checkStartPoint
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	$stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
 	$stoplog = 0
+
+	setStartStopTime(starttime, stoptime)
 
 end
 
@@ -554,45 +598,18 @@ end
 # Reset and load saved stats data between start and stop time.
 def loadStats(replay=false)
 
-	# Set start and stop year, month, day.
-	t = Time.at($starttime)
-	t.utc
-	ys = t.year
-	ms = t.month
-	ds = t.day
-	t = Time.at($stoptime)
-	t.utc
-	ye = t.year
-	me = t.month
-	de = t.day
-	intms = (sprintf('%04d', ys) + sprintf('%02d', ms) + '00').to_i
-	intme = (sprintf('%04d', ye) + sprintf('%02d', me) + '00').to_i
-	intds = (sprintf('%04d', ys) + sprintf('%02d', ms) + sprintf('%02d', ds)).to_i
-	intde = (sprintf('%04d', ye) + sprintf('%02d', me) + sprintf('%02d', de)).to_i
-
-	# Exclude ending day
-	de -= 1
-	if de == 0
-		me -= 1
-		if me == 0
-			ye -= 1
-			me = 12
-		end
-		de = calendardays(ye, me)
-	end
-
 	# Pre-initialize database variables from start to stop day.
-	(ys..ye).each do |yi|
-		msi = (ys == yi) ? ms : 1
-		mei = (ye == yi) ? me : 12
+	($ys..$ye).each do |yi|
+		msi = ($ys == yi) ? $ms : 1
+		mei = ($ye == yi) ? $me : 12
 		$dbdata['pages'][yi] = {} if !$dbdata['pages'].has_key?(yi)
 		$dbdata['countries'][yi] = {} if !$dbdata['countries'].has_key?(yi)
 		$dbdata['blacklist'][yi] = {} if !$dbdata['blacklist'].has_key?(yi)
 		$dbdata['pageviews'][yi] = {} if !$dbdata['pageviews'].has_key?(yi)
 		$dbdata['ips'][yi] = {} if !$dbdata['ips'].has_key?(yi)
 		(msi..mei).each do |mi|
-			dsi = (ys == yi and ms == mi) ? ds : 1
-			dei = (ye == yi and me == mi) ? de : calendardays(yi, mi)
+			dsi = ($ys == yi and $ms == mi) ? $ds : 1
+			dei = ($ye == yi and $me == mi) ? $de : calendardays(yi, mi)
 			$dbdata['pages'][yi][mi] = {}
 			$dbdata['countries'][yi][mi] = {}
 			$dbdata['blacklist'][yi][mi] = {} if !$dbdata['blacklist'][yi].has_key?(mi)
@@ -606,12 +623,6 @@ def loadStats(replay=false)
 		end
 	end
 
-	# Clean temporary database if it contains data.
-	s = $tmpdb.prepare 'DELETE FROM `ips` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
-	s.bind_params(intms, intme)
-	s.execute
-	s.close
-
 	# Import blacklist data from database
 	s = $db.prepare 'SELECT `year`, `month`, `day`, `ip` FROM `blacklist` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
 	s.bind_params(intms, intme)
@@ -621,29 +632,49 @@ def loadStats(replay=false)
 	end
 	s.close
 
+	# Clean ips database if in replay mode.
+	if replay == true
+		s = $tmpdb.prepare 'DELETE FROM `ips` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+		s.bind_params($intms, $intme)
+		s.execute
+		s.close
+	end
+
 	# Import stats data from database to variables only if not in replay mode.
-	return if replay == true
-	s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
-	s.bind_params(intms, intme)
-	r = s.execute
-	r.each do |row|
-		$dbdata['pages'][row[0]][row[1]][row[2]] = row[3]
+	if replay == false
+		s = $db.prepare 'SELECT `year`, `month`, `page`, `count` FROM `pages` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+		s.bind_params($intms, $intme)
+		r = s.execute
+		r.each do |row|
+			$dbdata['pages'][row[0]][row[1]][row[2]] = row[3]
+		end
+		s.close
+		s = $db.prepare 'SELECT `year`, `month`, `country`, `count` FROM `countries` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+		s.bind_params($intms, $intme)
+		r = s.execute
+		r.each do |row|
+			$dbdata['countries'][row[0]][row[1]][row[2]] = row[3]
+		end
+		s.close
+		s = $db.prepare 'SELECT `year`, `month`, `day`, `count` FROM `pageviews` WHERE `year` * 10000 + `month` * 100 + `day` BETWEEN ? AND ?'
+		s.bind_params($intds, $intde)
+		r = s.execute
+		r.each do |row|
+			$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
+		end
+		s.close
+		s = $db.prepare 'SELECT `id`, `year`, `month` FROM `visitors` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+		s.bind_params($intms, $intme)
+		r = s.execute
+		r.each do |row|
+			ip = row[0][row[0].rindex('-')+1..row[0].length]
+			ss = $tmpdb.prepare 'INSERT OR IGNORE INTO `ips` (`id`, `year`, `month`, `day`, `ip`, `count`) VALUES (?, ?, ?, 0, ?, 1)'
+			ss.bind_params(row[0], row[1], row[2], ip)
+			ss.execute
+			ss.close
+		end
+		s.close
 	end
-	s.close
-	s = $db.prepare 'SELECT `year`, `month`, `country`, `count` FROM `countries` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
-	s.bind_params(intms, intme)
-	r = s.execute
-	r.each do |row|
-		$dbdata['countries'][row[0]][row[1]][row[2]] = row[3]
-	end
-	s.close
-	s = $db.prepare 'SELECT `year`, `month`, `day`, `count` FROM `pageviews` WHERE `year` * 10000 + `month` * 100 + `day` BETWEEN ? AND ?'
-	s.bind_params(intds, intde)
-	r = s.execute
-	r.each do |row|
-		$dbdata['pageviews'][row[0]][row[1]][row[2]] = row[3]
-	end
-	s.close
 
 end
 
@@ -725,11 +756,9 @@ def checkBots(list)
 	ips = '(' + ips.keys.join('|').gsub('.','\\.') + ')'
 
 	# Set start and stop time.
-	$starttime = list.min_by {|x| x['startime'] }['starttime']
-	$stoptime = list.max_by {|x| x['stoptime'] }['stoptime']
-
-	# Avoid importing data after next start time.
-	$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+	starttime = list.min_by {|x| x['startime'] }['starttime']
+	stoptime = list.max_by {|x| x['stoptime'] }['stoptime']
+	setStartStopTime(starttime, stoptime)
 
 	# Set start and stop log.
 	setStartLog(true)
@@ -880,11 +909,9 @@ def filterBots
 		end
 
 		# Set start and stop time.
-		$starttime = Time.new(y, m, 1, 0, 0, 0, "+00:00").to_i
-		$stoptime = Time.new(ye, me, 1, 0, 0, 0, "+00:00").to_i
-
-		# Avoid importing data after next start time.
-		$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+		starttime = Time.new(y, m, 1, 0, 0, 0, "+00:00").to_i
+		stoptime = Time.new(ye, me, 1, 0, 0, 0, "+00:00").to_i
+		setStartStopTime(starttime, stoptime)
 
 		# Set start and stop log.
 		setStartLog(true)
@@ -911,7 +938,7 @@ end
 def cleanEnvironment
 
 	$tmpdb.close
-	File.delete(DBPATH + '/tmp.db') #FIXME
+	File.delete(DBPATH + '/tmp.db')
 
 end
 
@@ -1064,8 +1091,14 @@ def saveStats
 		end
 	end
 
-	# Update visitors database with data in temporary database and delete temporary database.
+	# Update visitors database with data in temporary database.
 	saveIPCache()
+
+	s = $db.prepare 'DELETE FROM `visitors` WHERE `year` * 10000 + `month` * 100 BETWEEN ? AND ?'
+	s.bind_params($intms, $intme)
+	s.execute
+	s.close
+
 	s = $tmpdb.prepare 'SELECT `ip`, `year`, `month` FROM `ips`'
 	r = s.execute
 	r.each do |row|
