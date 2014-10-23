@@ -503,7 +503,7 @@ def checkEnvironment
 		$db.execute 'CREATE TABLE IF NOT EXISTS `pages`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `page` TEXT, `count` INTEGER)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `visitors`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `countries`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `country` TEXT, `count` INTEGER)'
-		$db.execute 'CREATE TABLE IF NOT EXISTS `blacklist`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `ip` TEXT)'
+		$db.execute 'CREATE TABLE IF NOT EXISTS `blacklist`(`id` TEXT UNIQUE, `year` INTEGER, `month` INTEGER, `day` INTEGER, `ip` TEXT)'
 		$db.execute 'CREATE TABLE IF NOT EXISTS `config`(`id` TEXT UNIQUE, `data` TEXT)'
 	else
 		$db = SQLite3::Database.open DBPATH + '/DB.db'
@@ -595,10 +595,11 @@ def loadStats(replay=false)
 			dei = (ye == yi and me == mi) ? de : calendardays(yi, mi)
 			$dbdata['pages'][yi][mi] = {}
 			$dbdata['countries'][yi][mi] = {}
-			$dbdata['blacklist'][yi][mi] = {}
+			$dbdata['blacklist'][yi][mi] = {} if !$dbdata['blacklist'][yi].has_key?(mi)
 			$dbdata['pageviews'][yi][mi] = {} if !$dbdata['pageviews'][yi].has_key?(mi)
 			$dbdata['ips'][yi][mi] = {} if !$dbdata['ips'][yi].has_key?(mi)
 			(dsi..dei).each do |di|
+				$dbdata['blacklist'][yi][mi][di] = {}
 				$dbdata['pageviews'][yi][mi][di] = 0
 				$dbdata['ips'][yi][mi][di] = {}
 			end
@@ -820,7 +821,7 @@ def filterBots
 		# Do nothing if the IP is already blacklisted.
 		blacklisted = false
 		ss = $db.prepare 'SELECT COUNT(`id`) FROM `blacklist` WHERE `id` = ?'
-		ss.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + i)
+		ss.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + sprintf('%02d', d) + '-' + i)
 		rr = ss.execute
 		rr.each do |row|
 			blacklisted = true if row[0] > 0
@@ -830,7 +831,7 @@ def filterBots
 
 		# Add IP to appropriate list depending on the traffic being considered as a DoS or potential bot.
 		if n >= DOSLIMIT
-			blacklist.push({'y' => y, 'm' => m, 'i' => i})
+			blacklist.push({'y' => y, 'm' => m, 'd' => d, 'i' => i})
 		else
 			suspects.push({'y' => y, 'm' => m, 'd' => d, 'i' => i})
 		end
@@ -841,7 +842,7 @@ def filterBots
 	# Check if suspected IPs are bots and add them to the blacklist if so.
 	if suspects.length > 0
 		checkBots(suspects).each do |data|
-			blacklist.push({'y' => data['y'], 'm' => data['m'], 'i' => data['i']})
+			blacklist.push({'y' => data['y'], 'm' => data['m'], 'd' => data['d'], 'i' => data['i']})
 		end
 	end
 
@@ -851,11 +852,12 @@ def filterBots
 		# Set variables.
 		y = data['y']
 		m = data['m']
+		d = data['d']
 		i = data['i']
 
 		# Blacklist the IP for the given month.
-		s = $db.prepare 'INSERT OR IGNORE INTO `blacklist` (`id`, `year`, `month`, `ip`) VALUES (?, ?, ?, ?)'
-		s.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + i, y, m, i)
+		s = $db.prepare 'INSERT OR IGNORE INTO `blacklist` (`id`, `year`, `month`, `day`, `ip`) VALUES (?, ?, ?, ?, ?)'
+		s.bind_params(sprintf('%04d', y) + '-' + sprintf('%02d', m) + '-' + sprintf('%02d', d) + '-' + i, y, m, d, i)
 		s.execute
 		s.close
 
@@ -917,9 +919,6 @@ end
 # Update stats count.
 def updateStats(data)
 
-	# Ignore lines with blacklisted IP.
-	return if $dbdata['blacklist'][data['year']][data['month']].has_key?(data['IP'])
-
 	# Set variables.
 	y = data['year']
 	m = data['month']
@@ -927,6 +926,9 @@ def updateStats(data)
 	p = data['page']
 	c = data['country']
 	i = data['IP']
+
+	# Ignore lines with blacklisted IP.
+	return if $dbdata['blacklist'][y][m][d].has_key?(i)
 
 	# Update pageviews by IP, later used for bots detection and unique visitors count.
 	if !$dbdata['ips'][y][m][d].has_key?(i)
