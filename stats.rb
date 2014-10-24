@@ -571,14 +571,14 @@ def checkStartPoint
 		$startlog = 0
 		$startlog += 1 while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz')
 		firstline = parseLine(getFirstLine($startlog))
-		starttime = firstline['time']
+		$starttime = firstline['time']
 	# If DB exists, set start time and log from last stop time on DB.
 	else
-		starttime = 0
+		$starttime = 0
 		s = $db.prepare 'SELECT `data` FROM `config` WHERE `id` = \'resume\''
 		r = s.execute
 		r.each do |row|
-			starttime = row[0].to_i
+			$starttime = row[0].to_i
 		end
 		s.close
 		abord(DBPATH + ' must be restarted using saved server logs.') if $starttime == 0
@@ -587,10 +587,10 @@ def checkStartPoint
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	$stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
 	$stoplog = 0
 
-	setStartStopTime(starttime, stoptime)
+	setStartStopTime($starttime, $stoptime)
 
 end
 
