@@ -1028,14 +1028,35 @@ end
 # Write stats data to file.
 def saveStats
 
-	# Save imported logs and delete temporary log file.
+	# Save imported logs.
 	if File.exist?(DBPATH + '/logs/tmp.log.gz')
 		File.open(DBPATH + '/logs/tmp.log.gz', 'r') do |srcgz|
 		Zlib::GzipReader.wrap(srcgz) do |src|
 
 			begin
-				dstgz = File.open(DBPATH + '/logs/access.log.gz', 'a')
+
+				# Temporary move access.log.gz to tmp.access.log.gz if file exists.
+				File.delete(DBPATH + '/logs/tmp.access.log.gz') if File.exist?(DBPATH + '/logs/tmp.access.log.gz')
+				File.rename(DBPATH + '/logs/access.log.gz', DBPATH + '/logs/tmp.access.log.gz') if File.exist?(DBPATH + '/logs/access.log.gz')
+
+				# Create access.log.gz.
+				dstgz = File.open(DBPATH + '/logs/access.log.gz', 'w')
 				dst = Zlib::GzipWriter.wrap(dstgz)
+
+				# Copy tmp.access.log.gz into access.log.gz
+				# This is a workaround for GzipReader being unable to read data appended with GzipWriter to an existing file.
+				if File.exist?(DBPATH + '/logs/tmp.access.log.gz')
+					File.open(DBPATH + '/logs/tmp.access.log.gz', 'r') do |psrcgz|
+					Zlib::GzipReader.wrap(psrcgz) do |psrc|
+					psrc.each do |line|
+						dst.puts line
+					end
+					end
+					end
+					File.delete(DBPATH + '/logs/tmp.access.log.gz')
+				end
+
+				# Save new imported lines.
 				src.each do |line|
 					dst.puts line
 					# Rotate logs when file size gets bigger than 100Mb.
@@ -1054,6 +1075,7 @@ def saveStats
 
 		end
 		end
+		# Delete temporary log file.
 		File.delete(DBPATH + '/logs/tmp.log.gz')
 	end
 
