@@ -455,16 +455,17 @@ def setStartStopTime(start, stop)
 	$starttime = start
 	$stoptime = stop
 
-	# Avoid importing data after next start time.
-	$stoptime = $stoptime <= $resumetime ? $stoptime : $resumetime
+	# Avoid importing data after DB stop time, or before DB start time.
+	$stoptime = $stoptime <= $dbstoptime ? $stoptime : $dbstoptime
+	$starttime = $starttime > $dbstarttime ? $starttime : $dbstarttime
 
 	# Set start and stop year, month, day.
-	t = Time.at(start)
+	t = Time.at($starttime)
 	t.utc
 	$ys = t.year
 	$ms = t.month
 	$ds = t.day
-	t = Time.at(stop)
+	t = Time.at($stoptime)
 	t.utc
 	$ye = t.year
 	$me = t.month
@@ -571,7 +572,7 @@ def checkStartPoint
 		$startlog = 0
 		$startlog += 1 while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz')
 		firstline = parseLine(getFirstLine($startlog))
-		$starttime = firstline['time']
+		$starttime = Time.new(firstline['year'], firstline['month'], firstline['day'], 0, 0, 0, "+00:00").to_i
 	# If DB exists, set start time and log from last stop time on DB.
 	else
 		$starttime = 0
@@ -587,8 +588,17 @@ def checkStartPoint
 
 	# Set stop time from last line of first log file.
 	lastline = parseLine(getLastLine(0))
-	$stoptime = $resumetime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	$stoptime = $dbstoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
 	$stoplog = 0
+
+	# Set DB start time.
+	$dbstarttime = $starttime
+	s = $db.prepare 'SELECT `year`, `month`, `day` FROM `pageviews` ORDER BY `year` ASC, `month` ASC, `day` ASC LIMIT 1'
+	r = s.execute
+	r.each do |row|
+		$dbstarttime = Time.new(row[0], row[1], row[2], 0, 0, 0, "+00:00").to_i
+	end
+	s.close
 
 	setStartStopTime($starttime, $stoptime)
 
@@ -1133,7 +1143,7 @@ def saveStats
 
 	# Save resumetime to database to resume the script later.
 	s = $db.prepare 'INSERT OR REPLACE INTO `config` (`id`, `data`) VALUES (\'resume\', ?)'
-	s.bind_params($resumetime.to_s)
+	s.bind_params($dbstoptime.to_s)
 	s.execute
 	s.close
 
