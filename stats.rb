@@ -20,6 +20,12 @@ GEOIPPATH = "/usr/share/GeoIP/GeoIP.dat"
 BOTLIMIT = 10000
 DOSLIMIT = 100000
 
+if !ARGV.empty? and ARGV[0] == 'replay'
+	REPLAY = true
+else
+	REPLAY = false
+end
+
 $dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}, 'ips' => {}, 'blacklist' => {}}
 
 $benchstart = Time.new.to_i
@@ -358,7 +364,7 @@ end
 
 
 # Get first line from log number.
-def getFirstLine(n, replay=false)
+def getFirstLine(n, replay=REPLAY)
 
 	path = LOGSPATH
 	path = DBPATH + '/logs' if replay == true
@@ -388,7 +394,7 @@ end
 
 
 # Get last line from log number.
-def getLastLine(n, replay=false)
+def getLastLine(n, replay=REPLAY)
 
 	path = LOGSPATH
 	path = DBPATH + '/logs' if replay == true
@@ -492,7 +498,7 @@ end
 
 
 # Find start log based on start time.
-def setStartLog(replay=false)
+def setStartLog(replay=REPLAY)
 
 	path = LOGSPATH
 	path = DBPATH + '/logs' if replay == true
@@ -508,7 +514,7 @@ end
 
 
 # Find stop log based on stop time.
-def setStopLog(replay=false)
+def setStopLog(replay=REPLAY)
 
 	path = LOGSPATH
 	path = DBPATH + '/logs' if replay == true
@@ -532,12 +538,26 @@ def checkEnvironment
 	abord(GEOIPPATH + ' is missing') if !File.file?(GEOIPPATH)
 	abord(TEMPLATEPATH + '/main.css is missing') if !File.file?(TEMPLATEPATH + '/main.css')
 	abord(TEMPLATEPATH + '/main.js is missing') if !File.file?(TEMPLATEPATH + '/main.js')
-	abord(DBPATH + ' is not empty.') if (!File.exist?(DBPATH + '/logs/access.log.gz') or !File.exist?(DBPATH + '/DB.db')) and Dir[DBPATH + '/*'].length > 0
+	abord(DBPATH + '/logs/access.log.gz is missing') if !File.exist?(DBPATH + '/logs/access.log.gz') and Dir[DBPATH + '/*'].length > 0
+	abord(DBPATH + '/DB.db is missing') if !File.exist?(DBPATH + '/DB.db') and Dir[DBPATH + '/*'].length > 0 and REPLAY == false
 
 	# Create directories if not exist.
 	FileUtils.mkdir_p(WEBPATH) if !File.directory?(WEBPATH)
 	FileUtils.mkdir_p(DBPATH) if !File.directory?(DBPATH)
 	FileUtils.mkdir_p(DBPATH + '/logs') if !File.directory?(DBPATH + '/logs')
+
+	# Backup old database if in replay mode.
+	if REPLAY == true and File.exist?(DBPATH + '/DB.db')
+		t = Time.new
+		date = sprintf('%04d', t.year) + '-' + sprintf('%02d', t.month) + '-' + sprintf('%02d', t.day)
+		n = 0
+		ex = ''
+		while File.exist?(DBPATH + '/DB-' + date + ex + '.db') do
+			n += 1
+			ex = '-' + sprintf('%03d', n)
+		end
+		File.rename(DBPATH + '/DB.db',DBPATH + '/DB-' + date + ex + '.db')
+	end
 
 	# Create or load database.
 	if !File.exist?(DBPATH + '/DB.db')
@@ -567,10 +587,13 @@ end
 # Find start time, stop time and start log file.
 def checkStartPoint
 
-	# On first start, set start time and log from first line of last log file.
-	if !File.exist?(DBPATH + '/logs/access.log.gz')
+	path = LOGSPATH
+	path = DBPATH + '/logs' if REPLAY == true
+
+	# On first start or replay mode, set start time and log from first line of last log file.
+	if !File.exist?(DBPATH + '/logs/access.log.gz') or REPLAY == true
 		$startlog = 0
-		$startlog += 1 while File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s) or File.exist?(LOGSPATH + '/access.log.' + ($startlog+1).to_s + '.gz')
+		$startlog += 1 while File.exist?(path + '/access.log.' + ($startlog+1).to_s) or File.exist?(path + '/access.log.' + ($startlog+1).to_s + '.gz')
 		firstline = parseLine(getFirstLine($startlog))
 		$starttime = Time.new(firstline['year'], firstline['month'], firstline['day'], 0, 0, 0, "+00:00").to_i
 	# If DB exists, set start time and log from last stop time on DB.
@@ -606,7 +629,7 @@ end
 
 
 # Reset and load saved stats data between start and stop time.
-def loadStats(replay=false)
+def loadStats(replay=REPLAY)
 
 	# Pre-initialize database variables from start to stop day.
 	($ys..$ye).each do |yi|
@@ -690,7 +713,7 @@ end
 
 
 # Import data from start log to stop log.
-def importData(replay=false)
+def importData(replay=REPLAY)
 
 	benchstart = Time.new.to_i
 	linecount = 0

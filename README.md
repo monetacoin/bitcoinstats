@@ -34,3 +34,11 @@ A few constants can be edited within the file:
 **BOTLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for a full month if requests look like automated bot requests.
 
 **DOSLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for a full month.
+
+## Replay database
+
+To rebuild the database, make sure server logs are still in (DBPATH)/logs, and execute:
+
+    ruby stats.rb replay
+
+Like with normal logs, the last day in (DBPATH)/logs won't be imported.
