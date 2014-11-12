@@ -470,7 +470,7 @@ def setStartStopTime(start, stop)
 	$starttime = $starttime > $dbstarttime ? $starttime : $dbstarttime
 
 	# Set start and stop year, month, day.
-	t = Time.at([$starttime, $stoptime-1].min)
+	t = Time.at([$starttime, $stoptime].min)
 	t.utc
 	$ys = t.year
 	$ms = t.month
