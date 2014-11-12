@@ -533,6 +533,7 @@ def checkEnvironment
 	abord(TEMPLATEPATH + '/main.js is missing') if !File.file?(TEMPLATEPATH + '/main.js')
 	abord(DBPATH + '/logs/access.log.gz is missing') if !File.exist?(DBPATH + '/logs/access.log.gz') and Dir[DBPATH + '/*'].length > 0
 	abord(DBPATH + '/DB.db is missing') if !File.exist?(DBPATH + '/DB.db') and Dir[DBPATH + '/*'].length > 0 and REPLAY == false
+	abord(DBPATH + '/lock seems to indicate concurrent database access or corrupted database. You should make sure the script is not running, delete the lock file, and run the script with the replay argument.') if File.exist?(DBPATH + '/lock')
 
 	# Create directories if not exist.
 	FileUtils.mkdir_p(WEBPATH) if !File.directory?(WEBPATH)
@@ -1056,6 +1057,10 @@ end
 # Write stats data to file.
 def saveStats
 
+	# Create lock file.
+	abord(DBPATH + '/lock seems to indicate concurrent database access or corrupted database. You should make sure the script is not running, delete the lock file, and run the script with the replay argument.') if File.exist?(DBPATH + '/lock')
+	File.open(DBPATH + '/lock', 'w') {}
+
 	# Save imported logs.
 	if File.exist?(DBPATH + '/logs/tmp.log.gz')
 		File.open(DBPATH + '/logs/tmp.log.gz', 'r') do |srcgz|
@@ -1166,6 +1171,9 @@ def saveStats
 	s.close
 
 	$db.execute 'COMMIT'
+
+	# Delete lock file.
+	File.delete(DBPATH + '/lock')
 
 end
 
