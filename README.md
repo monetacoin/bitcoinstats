@@ -40,5 +40,3 @@ A few constants can be edited within the file:
 To rebuild the database, make sure server logs are still in (DBPATH)/logs, and execute:
 
     ruby stats.rb replay
-
-Like with normal logs, the last day in (DBPATH)/logs won't be imported.

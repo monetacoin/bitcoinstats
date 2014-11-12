@@ -413,7 +413,11 @@ def getLastLine(n, replay=REPLAY)
 				lastline = log.read()
 			end
 			lastline = lastline.split("\n")
-			lastline = lastline[lastline.length-2]
+			if lastline[lastline.length-1].length > 0
+				lastline = lastline[lastline.length-1]
+			else
+				lastline = lastline[lastline.length-2]
+			end
 		ensure
 			log.close if !log.closed?
 		end
@@ -466,22 +470,16 @@ def setStartStopTime(start, stop)
 	$starttime = $starttime > $dbstarttime ? $starttime : $dbstarttime
 
 	# Set start and stop year, month, day.
-	t = Time.at($starttime)
+	t = Time.at([$starttime, $stoptime-1].min)
 	t.utc
 	$ys = t.year
 	$ms = t.month
 	$ds = t.day
-	t = Time.at($stoptime)
+	t = Time.at([$starttime-1, $stoptime-1].max)
 	t.utc
 	$ye = t.year
 	$me = t.month
 	$de = t.day
-
-	# Exclude ending day.
-	date = Date.new($ye, $me, $de)-1
-	$ye = date.year
-	$me = date.month
-	$de = date.day
 
 	# Set intervals for database.
 	$intms = (sprintf('%04d', $ys) + sprintf('%02d', $ms) + '00').to_i
@@ -604,11 +602,6 @@ def checkStartPoint
 		setStartLog()
 	end
 
-	# Set stop time from last line of first log file.
-	lastline = parseLine(getLastLine(0))
-	$stoptime = $dbstoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
-	$stoplog = 0
-
 	# Set DB start time.
 	$dbstarttime = $starttime
 	s = $db.prepare 'SELECT `year`, `month`, `day` FROM `pageviews` ORDER BY `year` ASC, `month` ASC, `day` ASC LIMIT 1'
@@ -617,6 +610,13 @@ def checkStartPoint
 		$dbstarttime = Time.new(row[0], row[1], row[2], 0, 0, 0, "+00:00").to_i
 	end
 	s.close
+
+	# Set stop time from last line of first log file.
+	lastline = parseLine(getLastLine(0))
+	$stoptime = $dbstoptime = Time.new(lastline['year'], lastline['month'], lastline['day'], 0, 0, 0, "+00:00").to_i
+	$stoptime = $dbstoptime = lastline['time'] + 1 if REPLAY == true
+	$stoptime = $dbstoptime = $starttime if $dbstoptime < $starttime
+	$stoplog = 0
 
 	setStartStopTime($starttime, $stoptime)
 
