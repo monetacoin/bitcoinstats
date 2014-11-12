@@ -478,15 +478,10 @@ def setStartStopTime(start, stop)
 	$de = t.day
 
 	# Exclude ending day.
-	$de -= 1
-	if $de == 0
-		$me -= 1
-		if $me == 0
-			$ye -= 1
-			$me = 12
-		end
-		$de = calendardays($ye, $me)
-	end
+	date = Date.new($ye, $me, $de)-1
+	$ye = date.year
+	$me = date.month
+	$de = date.day
 
 	# Set intervals for database.
 	$intms = (sprintf('%04d', $ys) + sprintf('%02d', $ms) + '00').to_i
