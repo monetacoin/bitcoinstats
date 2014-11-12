@@ -31,9 +31,9 @@ A few constants can be edited within the file:
 
 **GEOIPPATH** : This constant defines where to find GeoIP.dat for geolocation.
 
-**BOTLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for a full month if requests look like automated bot requests.
+**BOTLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for the day if requests look like automated bot requests.
 
-**DOSLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for a full month.
+**DOSLIMIT** : This constant defines how many requests an IP can make per day before it is blacklisted for the day.
 
 ## Replay database
 
