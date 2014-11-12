@@ -6,6 +6,7 @@ require 'fileutils'
 require 'cgi'
 require 'geoip'
 require 'sqlite3'
+require 'openssl'
 
 Process.setpriority(Process::PRIO_PROCESS, 0, 19)
 
@@ -26,7 +27,7 @@ else
 	REPLAY = false
 end
 
-$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}, 'ips' => {}, 'blacklist' => {}}
+$dbdata = {'pageviews' => {}, 'pages' => {}, 'countries' => {}, 'ips' => {}, 'blacklist' => {}, 'keys' => {}}
 
 $benchstart = Time.new.to_i
 
@@ -334,14 +335,15 @@ def parseLine(data)
 end
 
 
-# Return log line with anonymized IP.
-def anonymizeLine(data)
+# Return anonymized IP, shuffled with the monthly private key.
+def anonymizeIP(ip, y, m)
 
-	dot = data.index('.')
-	dot = data.index('.', dot+1)
-	dot = data.index('.', dot+1)
+	pos = ip.rindex('.')
+	firstoctets = ip[0..pos]
+	lastoctet = ip[pos+1..ip.length].to_i
+	digest = OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha256'), $dbdata['keys'][y][m], firstoctets).to_i(32)
 
-	return data[0..dot] + '0' + data[data.index(' ', dot+1)..data.length]
+	return firstoctets + (0..255).to_a.shuffle(random: Random.new(digest))[lastoctet].to_s
 
 end
 
@@ -436,6 +438,18 @@ def getLastLine(n, replay=REPLAY)
 	end
 
 	return lastline
+
+end
+
+
+# Return random data of given length from /dev/urandom.
+def getRandomData(bytes)
+
+	data = ''
+	File.open('/dev/urandom', 'r') do |file|
+		data = file.read(bytes)
+	end
+	return data
 
 end
 
@@ -535,10 +549,14 @@ def checkEnvironment
 	abord(DBPATH + '/DB.db is missing') if !File.exist?(DBPATH + '/DB.db') and Dir[DBPATH + '/*'].length > 0 and REPLAY == false
 	abord(DBPATH + '/lock seems to indicate concurrent database access or corrupted database. You should make sure the script is not running, delete the lock file, and run the script with the replay argument.') if File.exist?(DBPATH + '/lock')
 
+	# Check if /dev/urandom is available.
+	abord('/dev/urandom not available') if !File.exist?('/dev/urandom')
+
 	# Create directories if not exist.
 	FileUtils.mkdir_p(WEBPATH) if !File.directory?(WEBPATH)
 	FileUtils.mkdir_p(DBPATH) if !File.directory?(DBPATH)
 	FileUtils.mkdir_p(DBPATH + '/logs') if !File.directory?(DBPATH + '/logs')
+	FileUtils.mkdir_p(DBPATH + '/keys') if !File.directory?(DBPATH + '/keys')
 
 	# Backup old database if in replay mode.
 	if REPLAY == true and File.exist?(DBPATH + '/DB.db')
@@ -619,7 +637,24 @@ def checkStartPoint
 	$stoptime = $dbstoptime = $starttime if $dbstoptime < $starttime
 	$stoplog = 0
 
+	# Set start and stop time.
 	setStartStopTime($starttime, $stoptime)
+
+	# Generate and reload monthly private keys.
+	($ys..$ye).each do |yi|
+		$dbdata['keys'][yi] = {}
+		msi = $ys == yi ? $ms : 1
+		mei = $ye == yi ? $me : 12
+		(msi..mei).each do |mi|
+			fn = sprintf('%04d', yi) + '-' + sprintf('%02d', mi) + '.key'
+			if !File.exist?(DBPATH + '/keys/'+ fn)
+				File.open(DBPATH + '/keys/'+ fn, 'w') do |f|
+					f.write(getRandomData(32))
+				end
+			end
+			$dbdata['keys'][yi][mi] = File.read(DBPATH + '/keys/'+ fn)
+		end
+	end
 
 end
 
@@ -741,9 +776,12 @@ def importData(replay=REPLAY)
 						printbenchmark(benchstart, linecount)
 						saveIPCache()
 					end
-					line = anonymizeLine(line) if replay == false
 					data = parseLine(line)
 					next if data['time'] >= $stoptime or data['time'] < $starttime
+					if replay == false
+						data['IP'] = anonymizeIP(data['IP'], data['year'], data['month'])
+						line = data['IP'] + line[line.index(' ')..line.length]
+					end
 					tmplog.puts line
 					updateStats(data)
 				end
@@ -966,8 +1004,23 @@ end
 # Delete remaining temporary files.
 def cleanEnvironment
 
+	# Delete temporary database.
 	$tmpdb.close
 	File.delete(DBPATH + '/tmp.db')
+
+	# Overwrite and delete previous private keys.
+	t = Time.at($dbstoptime)
+	t.utc
+	y = t.year
+	m = t.month
+	fn = sprintf('%04d', y) + '-' + sprintf('%02d', m) + '.key'
+	Dir.foreach(DBPATH + '/keys') do |f|
+		next if f == '.' or f == '..' or f == fn
+		File.open(DBPATH + '/keys/' + f, 'w') do |fw|
+			fw.write(getRandomData(32));
+		end
+		File.delete(DBPATH + '/keys/' + f)
+	end
 
 end
 
