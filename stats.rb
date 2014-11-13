@@ -341,7 +341,7 @@ def anonymizeIP(ip, y, m)
 	pos = ip.rindex('.')
 	firstoctets = ip[0..pos]
 	lastoctet = ip[pos+1..ip.length].to_i
-	digest = OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha256'), $dbdata['keys'][y][m], firstoctets).to_i(32)
+	digest = OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha256'), $dbdata['keys'][y][m], firstoctets).to_i(16)
 
 	return firstoctets + (0..255).to_a.shuffle(random: Random.new(digest))[lastoctet].to_s
 
