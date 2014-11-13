@@ -1478,6 +1478,8 @@ def generatePage(y=nil, m=nil)
 		f.write('drawgraph();' + "\n")
 		f.write('</script>' + "\n\n")
 
+		f.write('<div>Generated with <a href="https://github.com/saivann/bitcoinstats">stats.rb</a>.</div>' + "\n\n")
+
 		f.write('</body>' + "\n")
 		f.write('</html>')
 
