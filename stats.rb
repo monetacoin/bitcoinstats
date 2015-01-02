@@ -1389,7 +1389,7 @@ def generatePage(y=nil, m=nil)
 		f.write('<div class="pagemore" id="pagemore" onclick="showmore(event);"><a>More...</a></div>' + "\n\n")
 
 		# Display menu for available dates.
-		($aye..$ays).each do |yi|
+		$aye.downto($ays) do |yi|
 			f.write('<div class="pagedates" id="pagedates">' + "\n")
 			f.write('<div>' + "\n")
 			a = (yi == y and m.nil? ) ? ' class="active"' : ''
